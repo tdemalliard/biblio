@@ -4,16 +4,12 @@ use warnings;
 use strict;
 
 use WWW::Mechanize;
-use Email::Sender::Simple qw(sendmail);
 use Time::Piece;
+use Email::MIME;
 use Data::Dumper;
 
-#### define variables
-my $code = ''; # biblio card number
-my $pin = ''; # password
-my $family = 'De Malliard';
-my $login_url = 'https://nelligan.ville.montreal.qc.ca/patroninfo*frc/?';
-my $renew_delay = 5; # number of day before due date from wich renew should try.
+#### load config
+my $config=do("config.pl");
 
 #### init 
 my $mech = WWW::Mechanize->new( 'ssl_opts' => { 
@@ -23,17 +19,17 @@ my $mech = WWW::Mechanize->new( 'ssl_opts' => {
 } );
 
 #### login
-$mech->get($login_url);
+$mech->get($$config{login_url});
 print "page loaded\n";
 
 my $fields = {
-	'code' => $code,
-	'pin' => $pin
+	'code' => $$config{code},
+	'pin' => $$config{pin}
 };
 $mech->submit_form(form_number => 1, fields => $fields);
 $mech->click();
 
-if ($mech->content() =~ m/$family/ ) {
+if ($mech->content() =~ m/$$config{family}/ ) {
 	print "Login: successful\n";
 } else {
 	print "Login: failed\n";
@@ -49,43 +45,43 @@ for (my $i = 0; $i < $count; $i ++) {
 	# get checkbox, and is its id as id for all reference to current book
 	if ( $book_array[$i] =~ /<input type="checkbox" name="(\w+)" id="\w+" value="(\w+)"/ ) {
 		my $id = $1;
-		$book_list{$i}{'checkbox'} = $id;
-		$book_list{$i}{'value'} = $2;
+		$book_list{$i}{checkbox} = $id;
+		$book_list{$i}{value} = $2;
 
 		# get name
 		if ( $book_array[$i] =~ /<label for="$id"><a href[^>]+>([^<]+)/ ) {
-			$book_list{$i}{'name'} = $1;
+			$book_list{$i}{name} = $1;
 		} else {
 			print "$i: name: error\n";
 		}
 
 		# get barcode
 		if ( $book_array[$i] =~ /class="patFuncBarcode"> ([^<]+) / ) {
-			$book_list{$i}{'barcode'} = $1;
+			$book_list{$i}{barcode} = $1;
 		} else {
 			print "$i: barcode: error\n";
 		}
 
 		# get return date
 		if ( $book_array[$i] =~ /class="patFuncStatus"> *RETOUR ([^<^ ]+)/ ) {
-			$book_list{$i}{'date'} = $1;
+			$book_list{$i}{date} = $1;
 
 			# get days before renew is due
-			my $due = Time::Piece->strptime($book_list{$i}{'date'}, "%y-%m-%d");
+			my $due = Time::Piece->strptime($book_list{$i}{date}, "%y-%m-%d");
 			my $now = localtime;
 			my $diff = $due - $now;
 			my $days = int($diff->days);
 
-			$book_list{$i}{'days'} = $days;
+			$book_list{$i}{days} = $days;
 		} else {
 			print "$i: date: error\n";
 		}
 
 		# get number of renew already done
 		if ( $book_array[$i] =~ /class="patFuncRenewCount">\w+ (\d+)/ ) {
-			$book_list{$i}{'renew'} = $1;
+			$book_list{$i}{renew} = $1;
 		} else {
-			$book_list{$i}{'renew'} = 0;
+			$book_list{$i}{renew} = 0;
 		}
 
 	} else {
@@ -106,34 +102,42 @@ $fields = {
 	'requestRenewSome' => 'OUI',
 };
 
+my $email_str = '';
 for (my $i = 0; $i < $count; $i ++) {
-	if ($renew_delay >= $book_list{$i}{'days'}){
-		$$fields{$book_list{$i}{'checkbox'}} = $book_list{$i}{'value'};
+	if ($$config{renew_delay} >= $book_list{$i}{days}){
+		$$fields{$book_list{$i}{checkbox}} = $book_list{$i}{value};
+		$email_str .= $book_list{$i}{name} . "\n";
 	}
 }
 
-$mech->submit_form(form_name => 'checkout_form', fields => $fields);
-$mech->click();
+# $mech->submit_form(form_name => 'checkout_form', fields => $fields);
+# $mech->click();
 
-$mech->save_content( 'result.html' );
+# $mech->save_content( 'result.html' );
+
+courriel($email_str, $$config{email_from}, $$config{email_to});
 
 
-__END__
-function submitCheckout(buttonname, buttonvalue)
-{
-     var oHiddenID;
-     oHiddenID = document.getElementById("checkoutpagecmd");
 
-     oHiddenID.name = buttonname;
-     oHiddenID.value = buttonvalue;
+sub courriel {
+	my $str = shift;
+	my $from = shift;
+	my $to = shift;
 
-     document.getElementById("checkout_form").submit();
-     return true;
+	#perpare email
+	my $message = Email::MIME->create(
+		header_str => [
+			From    => $from,
+			To      => $to,
+			Subject => "Biblio: books renewed",
+		],
+		attributes => {
+			encoding => 'quoted-printable',
+			charset  => 'UTF-8',
+		},
+		body_str => "Books just renewed:\n$str\n",
+	);
+
+	# send the message
+	sendmail($message);
 }
-
-<input type="checkbox" name="renew11" id="renew11" value="i4445716" />
-
-<a href="#" onclick="return submitCheckout( 'requestRenewSome', 'requestRenewSome' )">
-<img src="/screens/pat_renewmark_frc.gif" alt="Renouveler les titres sélectionnés" border="0"></a>
-
-<form name="checkout_form" method="POST" id="checkout_form" ><input type="HIDDEN" id="checkoutpagecmd" />
