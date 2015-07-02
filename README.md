@@ -10,6 +10,7 @@ Editer le fichier config.pl :
 * code de la carte de bilbiotheque
 * mot de passe associé, choisi en bilbiothèque
 * partie ou totalité du nom de famille, telle que affiché sur la page web du compte.
+
 Puis lancer le script :
 ```
 perl biblio.pl
