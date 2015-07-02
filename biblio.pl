@@ -6,6 +6,7 @@ use strict;
 use WWW::Mechanize;
 use Time::Piece;
 use Email::MIME;
+use Email::Sender::Simple qw(sendmail);
 use Data::Dumper;
 
 #### load config
@@ -27,7 +28,6 @@ my $fields = {
 	'pin' => $$config{pin}
 };
 $mech->submit_form(form_number => 1, fields => $fields);
-$mech->click();
 
 if ($mech->content() =~ m/$$config{family}/ ) {
 	print "Login: successful\n";
@@ -90,33 +90,37 @@ for (my $i = 0; $i < $count; $i ++) {
 }
 
 
-# output results
-for (my $i = 0; $i < $count; $i ++) {
-	print "$book_list{$i}{checkbox}: $book_list{$i}{value} $book_list{$i}{barcode} $book_list{$i}{date} ";
-	print "$book_list{$i}{renew} $book_list{$i}{name}\n";
-}
-print "\n";
+### output results
+# for (my $i = 0; $i < $count; $i ++) {
+# 	print "$book_list{$i}{checkbox}: $book_list{$i}{value} $book_list{$i}{barcode} $book_list{$i}{date} ";
+# 	print "$book_list{$i}{renew} $book_list{$i}{name}\n";
+# }
+# print "\n";
 
-# sent renew order if needed
+
+### sent renew order if needed
+my $renew = 0;
 $fields = { 
 	'requestRenewSome' => 'OUI',
 };
 
 my $email_str = '';
 for (my $i = 0; $i < $count; $i ++) {
-	if ($$config{renew_delay} >= $book_list{$i}{days}){
+	if ($$config{renew_days} >= $book_list{$i}{days}){
+		$renew = 1;
 		$$fields{$book_list{$i}{checkbox}} = $book_list{$i}{value};
 		$email_str .= $book_list{$i}{name} . "\n";
+
+		print "$book_list{$i}{checkbox}: $book_list{$i}{value} $book_list{$i}{barcode} $book_list{$i}{date} ";
+		print "$book_list{$i}{renew} $book_list{$i}{name}\n";
 	}
 }
 
-# $mech->submit_form(form_name => 'checkout_form', fields => $fields);
-# $mech->click();
+if ($renew == 1) {
+	$mech->submit_form(form_name => 'checkout_form', fields => $fields);
 
-# $mech->save_content( 'result.html' );
-
-courriel($email_str, $$config{email_from}, $$config{email_to});
-
+	courriel($email_str, $$config{email_from}, $$config{email_to});
+}
 
 
 sub courriel {
